@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>政策强度分析工具</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f7f6; color: #333; line-height: 1.6; }
+        .container { display: flex; flex-wrap: wrap; gap: 30px; }
+        .inputs, .results-section { background-color: #fff; border: 1px solid #ddd; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .inputs { flex: 1; min-width: 380px; max-width: 500px;}
+        .results-section { flex: 2; min-width: 450px; }
+        .inputs div, .thresholds div { margin-bottom: 15px; display: flex; flex-wrap: wrap; align-items: center;}
+        label { display: inline-block; width: 200px; font-weight: bold; color: #555; margin-right: 10px; }
+        input[type="text"], input[type="number"], select {
+            flex-grow: 1;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+            min-width: 150px; /* Ensure inputs don't get too small */
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s ease;
+            display: block; /* Make button take its own line */
+            margin-top: 15px;
+        }
+        button:hover { background-color: #0056b3; }
+        h1 { text-align: center; margin-bottom: 30px; color: #004085;}
+        h2, h3 { color: #0056b3; border-bottom: 2px solid #e0e0e0; padding-bottom: 8px; margin-top: 20px; }
+        h3 { font-size: 1.1em; }
+        pre {
+            background-color: #e9ecef;
+            padding: 15px;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.9em;
+            border: 1px solid #ced4da;
+        }
+        .spinner {
+            display: none;
+            margin: 20px auto;
+            width: 40px;
+            height: 40px;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <h1>政策强度智能分析与空白点识别</h1>
+    <div class="container">
+        <div class="inputs">
+            <h2>分析参数输入</h2>
+            <div>
+                <label for="region_name">分析区域:</label>
+                <input type="text" id="region_name" value="北京市">
+            </div>
+            <div>
+                <label for="policy_topic_select">政策主题:</label>
+                <select id="policy_topic_select">
+                    <option value="">全部主题</option>
+                    </select>
+            </div>
+            <div>
+                <label for="target_beneficiary_select">受益人模式:</label>
+                <select id="target_beneficiary_select">
+                    <option value="">全部受益人</option>
+                    </select>
+            </div>
+            <div>
+                <label for="policy_tool_category_select">政策工具类别:</label>
+                <select id="policy_tool_category_select">
+                    <option value="">全部分类</option>
+                    </select>
+            </div>
+
+            <div class="thresholds">
+                <h3>自定义评估阈值:</h3>
+                <div>
+                    <label for="min_policies">最低政策数量:</label>
+                    <input type="number" id="min_policies" value="1">
+                </div>
+                <div>
+                    <label for="max_avg_policy_age_days">最大平均政策年龄 (天):</label>
+                    <input type="number" id="max_avg_policy_age_days" value="1825"> </div>
+                <div>
+                    <label for="latest_policy_min_recency_days">最新政策距今不超过 (天):</label>
+                    <input type="number" id="latest_policy_min_recency_days" value="1095"> </div>
+                <div>
+                    <label for="required_levels_any_str">期望政策层级 (任一,逗号分隔):</label>
+                    <input type="text" id="required_levels_any_str" placeholder="例如: 省级,市级 (留空表示无要求)">
+                </div>
+                <div>
+                    <label for="min_distinct_tools">最低不同政策工具数:</label>
+                    <input type="number" id="min_distinct_tools" value="1">
+                </div>
+                <div>
+                    <label for="min_quantitative_details_count">最低量化信息政策数:</label>
+                    <input type="number" id="min_quantitative_details_count" value="0">
+                </div>
+            </div>
+            <button onclick="runAnalysis()">开始分析</button>
+            <div id="loading_spinner" class="spinner"></div>
+        </div>
+
+        <div class="results-section">
+            <h2>分析结果</h2>
+            <h3>目标区域指标 (<span id="res_target_region_name"></span>):</h3>
+            <pre id="target_metrics_result">等待分析...</pre>
+
+            <h3>全国基准指标 (<span id="res_national_region_name">全国各省、自治区、直辖市、新疆生产建设兵团</span>):</h3>
+            <pre id="national_metrics_result">等待分析...</pre>
+
+            <h3>薄弱点评估:</h3>
+            <pre id="weakness_assessment_result">等待分析...</pre>
+        </div>
+    </div>
+
+    <script>
+        const policyTopicOptions = [
+            "融资畅通与成本压降", "税费负担减轻与政策优惠", "营商环境持续优化",
+            "市场准入放宽与公平准营保障", "科技创新驱动与研发激励", "高素质人才引育与服务保障",
+            "公平竞争市场秩序建设", "企业产权与合法权益有效保护", "数字化与智能化转型赋能",
+            "“专精特新”与中小企业高质量发展", "创业服务体系建设与创新生态营造", "知识产权创造、运用与保护强化",
+            "绿色低碳转型与可持续发展引导", "生产要素市场化配置与成本管理", "内外贸一体化与国际化经营拓展",
+            "产业链供应链韧性与协同能力提升", "质量提升、品牌建设与标准引领", "弘扬和激发优秀企业家精神",
+            "政府采购支持与公平待遇保障", "产业基础设施配套与运营优化", "现代企业制度建设与公司治理优化",
+            "企业社会责任建设与ESG发展引导", "区域协调发展战略与民企参与激励", "企业合规经营与风险抵御能力建设",
+            "大中小企业融通发展与产业集群培育", "数据要素赋能与数据资产价值化", "市场化退出机制健全与企业注销便利化",
+            "政务服务便捷与效能提升", "新质生产力培育与发展促进"
+        ];
+
+        const targetBeneficiaryOptions = [
+            "各类民营企业", "中小微企业", "个体工商户", "科技型民营企业", "“专精特新”中小企业",
+            "初创期科技企业", "高成长性民营企业", "大型骨干民营企业", "外向型民营企业",
+            "制造业民营企业", "现代服务业民营企业", "商贸流通民营企业", "平台经济民营企业",
+            "文化和旅游领域民营企业", "体育健康养老产业民营经营主体", "节能环保与绿色低碳产业民营企业",
+            "数字经济核心产业民营企业", "返乡入乡创业企业", "乡村特色产业民营经营主体",
+            "特定区域与欠发达地区民营企业", "重点用工群体吸纳民营企业", "转型升级中民营企业",
+            "生产经营暂时困难民营企业", "民营上市及拟上市企业", "参与混合所有制改革的民营投资者",
+            "新型农业经营主体", "民办社会事业机构", "参与“一带一路”建设民营企业",
+            "劳动密集型民营企业", "退役军人创办企业", "吸纳残疾人就业民营企业", "青年创业企业"
+        ];
+
+        const policyToolCategoryOptions = [
+            "创新发展与转型升级激励工具类",
+            "市场准入、规制与公平竞争保障工具类",
+            "政务服务、环境保障与要素支撑类",
+            "融资支持与信用工具类",
+            "财税直接干预与优惠类"
+        ];
+
+        function populateSelect(selectId, optionsArray) {
+            const selectElement = document.getElementById(selectId);
+            if (!selectElement) {
+                console.error("下拉框元素未找到:", selectId);
+                return;
+            }
+            optionsArray.forEach(optionText => {
+                const option = document.createElement('option');
+                option.value = optionText;
+                option.textContent = optionText;
+                selectElement.appendChild(option);
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            populateSelect('policy_topic_select', policyTopicOptions);
+            populateSelect('target_beneficiary_select', targetBeneficiaryOptions);
+            populateSelect('policy_tool_category_select', policyToolCategoryOptions);
+        });
+
+        async function runAnalysis() {
+            const regionName = document.getElementById('region_name').value;
+            const policyTopic = document.getElementById('policy_topic_select').value || null;
+            const targetBeneficiaryName = document.getElementById('target_beneficiary_select').value || null;
+            const policyToolCategory = document.getElementById('policy_tool_category_select').value || null;
+            const spinner = document.getElementById('loading_spinner');
+
+            if (!regionName) {
+                alert("请输入分析区域！");
+                return;
+            }
+
+            const requiredLevelsStr = document.getElementById('required_levels_any_str').value.trim();
+            const requiredLevelsArray = requiredLevelsStr ? requiredLevelsStr.split(',').map(s => s.trim()).filter(s => s) : [];
+
+            const userThresholds = {
+                min_policies: parseInt(document.getElementById('min_policies').value) || 0,
+                max_avg_policy_age_days: parseInt(document.getElementById('max_avg_policy_age_days').value) || Infinity,
+                latest_policy_min_recency_days: parseInt(document.getElementById('latest_policy_min_recency_days').value) || Infinity,
+                required_levels_any: requiredLevelsArray,
+                min_distinct_tools: parseInt(document.getElementById('min_distinct_tools').value) || 0,
+                min_quantitative_details_count: parseInt(document.getElementById('min_quantitative_details_count').value) || 0
+            };
+
+            spinner.style.display = 'block';
+            document.getElementById('res_target_region_name').textContent = regionName;
+            document.getElementById('target_metrics_result').textContent = '正在分析，请稍候...';
+            document.getElementById('national_metrics_result').textContent = '正在分析，请稍候...';
+            document.getElementById('weakness_assessment_result').textContent = '正在分析，请稍候...';
+
+            try {
+                const response = await fetch('http://127.0.0.1:5001/api/analyze_policy_strength', { // 确保端口与您的后端一致
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        region_name: regionName,
+                        policy_topic: policyTopic,
+                        target_beneficiary_name: targetBeneficiaryName, // 后端应期望此键名
+                        policy_tool_category: policyToolCategory,     // 后端应期望此键名
+                        user_thresholds: userThresholds
+                    }),
+                });
+
+                spinner.style.display = 'none';
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+                }
+
+                const results = await response.json();
+
+                const formatMetrics = (metrics) => {
+                    if (!metrics) return "未能获取指标数据或数据为空。";
+                    if (typeof metrics === 'string') return metrics; // 如果已经是错误信息
+                    if (Object.keys(metrics).length === 0) return "无相关指标数据。";
+
+                    let output = "";
+                    for (const key in metrics) {
+                        let value = metrics[key];
+                        if (key === "averagePolicyAgeInDays" && value !== null && typeof value === 'number') {
+                            output += `${key}: ${Number(value).toFixed(0)} 天 (~${(Number(value)/365.25).toFixed(1)} 年)\n`;
+                        } else if (key === "latestPolicyAnnounceDate" && value !== null) {
+                            // 已经是由后端转换的ISO字符串日期
+                            output += `${key}: ${value}\n`;
+                        } else if (Array.isArray(value)) {
+                            output += `${key}: ${value.join(', ') || '无'}\n`;
+                        }
+                        else {
+                            output += `${key}: ${value === null ? 'N/A' : value}\n`;
+                        }
+                    }
+                    return output.trim() || "无可用指标。";
+                };
+
+                document.getElementById('target_metrics_result').textContent = formatMetrics(results.target_region_metrics);
+                document.getElementById('national_metrics_result').textContent = formatMetrics(results.national_baseline_metrics);
+
+                let weaknessesText = "评估完成。"; // 默认消息
+                if (results.assessment_weaknesses && results.assessment_weaknesses.length > 0) {
+                    // 检查是否是 “相对满足” 的消息
+                    if (results.assessment_weaknesses[0] !== "当前观察维度下，政策支持度相对满足用户设定的阈值要求。") {
+                         weaknessesText = "- " + results.assessment_weaknesses.join('\n- ');
+                    } else {
+                        weaknessesText = results.assessment_weaknesses[0]; // 直接显示 “相对满足”
+                    }
+                } else if (results.assessment_weaknesses && results.assessment_weaknesses.length === 0) {
+                    // 如果后端 assess_policy_strength 返回的是空列表，表示没有薄弱点，但也非“相对满足”
+                    weaknessesText = "所有评估维度均满足用户设定的阈值要求。";
+                }
+                document.getElementById('weakness_assessment_result').textContent = weaknessesText;
+
+            } catch (error) {
+                spinner.style.display = 'none';
+                console.error('分析过程中发生错误:', error);
+                const errorMessage = `错误: ${error.message}`;
+                document.getElementById('target_metrics_result').textContent = errorMessage;
+                document.getElementById('national_metrics_result').textContent = '分析出错';
+                document.getElementById('weakness_assessment_result').textContent = '分析出错';
+            }
+        }
+    </script>
+</body>
+</html>
